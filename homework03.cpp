@@ -90,7 +90,7 @@ void fillStatList(std::vector<std::string>& procFiles,
             std::string uid;
             std::getline(uidFile, uid);
 
-            if (uid != "1000") continue;
+            if (stol(uid) != getuid()) continue;
             statList.push_back(parseStatFile(line));
         }
 }
