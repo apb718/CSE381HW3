@@ -49,38 +49,9 @@ int getTime(const procStat& file) {
     return file.utime + file.stime;
 }
 
-void printLines() {
-    std::unordered_map<int, int> prevTimes;
-    bool firstRun = true;
-    while (true) {
-        std::vector<std::string> procFiles;
-        std::vector<procStat> statList;
-        getProcFiles(procFiles);
-
-        // Get the Proc Values
-        for (auto& line : procFiles) {
-            auto item = parseStatFile(line);
-            std::string path = "/proc/" +
-                std::to_string(item.pid) + "/loginuid";
-            std::ifstream uidFile(path);
-            std::string uid;
-            std::getline(uidFile, uid);
-
-            if (uid != "1000") continue;
-            statList.push_back(parseStatFile(line));
-        }
-
-
-        if (firstRun) {
-            for (auto item : statList) {
-                prevTimes.emplace(item.pid, getTime(item));
-            }
-            firstRun = false;
-            sleep(2);
-            continue;
-        }
-
-        std::sort(statList.begin(), statList.end(),
+void sortVector(std::vector<procStat>& statList,
+                std::unordered_map<int, int> prevTimes) {
+    std::sort(statList.begin(), statList.end(),
             [prevTimes] (const auto& lhs, const auto& rhs) {
             // std::cout << prevTimes[lhs.pid] << std::endl;
             if (prevTimes.find(lhs.pid) == prevTimes.end()) {
@@ -94,27 +65,56 @@ void printLines() {
             return lhsTimeDiff > rhsTimeDiff;
             // return true;
         });
+}
 
+void printProcesses(std::vector<procStat> statList) {
+    // clear terminal and print
+    std::system("clear");
+    std::cout << "   PID      CPU     COM\n";
+    for (auto& file : statList) {
+        std::string fileCpuTime = cpuTime(getTime(file));
 
-        // clear terminal and print
-        std::system("clear");
-        std::cout << "   PID      CPU     COM\n";
-        for (auto& file : statList) {
-            
-            std::string fileCpuTime = cpuTime(getTime(file));
+        std::cout << std::setw(9) << file.pid  << " "
+                    << std::setw(9) << fileCpuTime << " "
+                    << file.tcomm << std::endl;
+    }
+}
+void fillStatList(std::vector<std::string>& procFiles,
+                  std::vector<procStat>& statList) {
+        // Get the Proc Values
+        for (auto& line : procFiles) {
+            auto item = parseStatFile(line);
+            std::string path = "/proc/" +
+                std::to_string(item.pid) + "/loginuid";
+            std::ifstream uidFile(path);
+            std::string uid;
+            std::getline(uidFile, uid);
 
-            std::cout << std::setw(9) << file.pid  << " "
-                      << std::setw(9) << fileCpuTime << " "
-                      << file.tcomm << std::endl;
+            if (stol(uid) != getuid()) continue;
+            statList.push_back(parseStatFile(line));
         }
-
+}
+void printLines() {
+    std::unordered_map<int, int> prevTimes;
+    bool firstRun = true;
+    while (true) {
+        std::vector<std::string> procFiles;
+        std::vector<procStat> statList;
+        getProcFiles(procFiles);
+        fillStatList(procFiles, statList);
+        if (firstRun) {
+            for (auto item : statList) {
+                prevTimes.emplace(item.pid, getTime(item));
+            }
+            firstRun = false;
+            sleep(2);
+            continue;
+        }
+        sortVector(statList, prevTimes);
+        printProcesses(statList);
+        // empty the map then add new time data
         prevTimes.clear();
-        for (auto item : statList) {
-            prevTimes.emplace(item.pid, getTime(item));
-        }
-        // procFiles.clear();
-        // statList.clear();
-
+        for (auto item : statList) {prevTimes.emplace(item.pid, getTime(item));}
         sleep(2);
     }
 }
@@ -129,8 +129,6 @@ int main(int argc, char* argv[]) {
     waiter.detach();
     std::thread printer(printLines);
     printer.detach();
-    
-    
     // Wait here until notified
     std::unique_lock<std::mutex> lock(waiter::waitMut);
     waiter::waitCond.wait(lock);
